@@ -16,12 +16,15 @@ if ($Uninstall) {
   Write-Host 'Native messaging registration removed.'
   exit 0
 }
-$publishPath = Join-Path $projectRoot 'host\publish'
+$hostRoot = Join-Path $projectRoot 'host'
+$sourceFiles = @((Join-Path $hostRoot 'Program.cs'), (Join-Path $hostRoot 'YouTubeHotkeyHost.csproj'))
+$sourceText = [IO.File]::ReadAllText($sourceFiles[0]) + [IO.File]::ReadAllText($sourceFiles[1])
+$sourceHash = [Security.Cryptography.SHA256]::Create()
+try { $sourceDigest = $sourceHash.ComputeHash([Text.Encoding]::UTF8.GetBytes($sourceText)) }
+finally { $sourceHash.Dispose() }
+$buildHash = [BitConverter]::ToString($sourceDigest).Replace('-', '').Substring(0, 12).ToLowerInvariant()
+$publishPath = Join-Path $hostRoot "publish-$buildHash"
 $exe = Join-Path $publishPath 'YouTubeHotkeyHost.exe'
-# Chrome can keep the previous helper running and lock its published DLL during an update.
-Get-Process -Name 'YouTubeHotkeyHost' -ErrorAction SilentlyContinue |
-  Where-Object { $_.Path -eq $exe } |
-  Stop-Process -Force
 $emptyFeed = Join-Path $projectRoot 'host\empty-feed'
 New-Item -ItemType Directory -Path $emptyFeed -Force | Out-Null
 dotnet restore (Join-Path $projectRoot 'host\YouTubeHotkeyHost.csproj') --source $emptyFeed
@@ -29,7 +32,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
 dotnet publish (Join-Path $projectRoot 'host\YouTubeHotkeyHost.csproj') -c Release --no-restore -o $publishPath
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 if (!(Test-Path -LiteralPath $exe)) { throw 'Helper executable was not built.' }
-$hostManifestPath = Join-Path $publishPath 'native-host.json'
+# Keep the registered manifest path stable while publishing to a versioned
+# directory. Windows can keep an older helper DLL locked until Chrome exits.
+$hostManifestPath = Join-Path $hostRoot 'publish\native-host.json'
+New-Item -ItemType Directory -Path (Split-Path $hostManifestPath) -Force | Out-Null
 $hostManifest = [ordered]@{
   name = 'com.custom.youtube_hotkeys'
   description = 'Custom YouTube Hotkeys Windows helper'

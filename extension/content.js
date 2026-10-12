@@ -1,3 +1,6 @@
+(() => {
+if (globalThis.__customYouTubeHotkeysLoaded) return;
+globalThis.__customYouTubeHotkeysLoaded = true;
 const QUALITY_LABELS = ["144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p", "4320p"];
 let lastVideo = null;
 let lastUrl = location.href;
@@ -100,3 +103,4 @@ document.addEventListener("yt-navigate-finish", () => {
 });
 attach();
 setTimeout(attach, 1000);
+})();

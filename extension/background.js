@@ -10,6 +10,17 @@ let cachedTarget = null;
 let cachedUntil = 0;
 const ACTIONS = new Set(["playPause", "volumeUp", "volumeDown", "mute", "seekForward", "seekBackward", "pip", "qualityUp", "qualityDown"]);
 
+async function sendToYouTubeTab(tabId, message) {
+  try { return await chrome.tabs.sendMessage(tabId, message); }
+  catch (error) {
+    // Chrome does not inject a newly loaded or reloaded extension into tabs that
+    // were already open. Install the content script there on the first command.
+    if (!/Receiving end does not exist|Could not establish connection/i.test(String(error))) throw error;
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+    return chrome.tabs.sendMessage(tabId, message);
+  }
+}
+
 async function settings() {
   return { ...DEFAULTS, ...(await chrome.storage.local.get(DEFAULTS)) };
 }
@@ -68,7 +79,7 @@ async function targetTab() {
   }
   // After a worker restart, ask existing tabs which video is playing.
   const states = await Promise.all(tabs.map(async tab => {
-    try { return { tab, state: await chrome.tabs.sendMessage(tab.id, { type: "state" }) }; }
+    try { return { tab, state: await sendToYouTubeTab(tab.id, { type: "state" }) }; }
     catch { return { tab, state: null }; }
   }));
   const active = states.filter(x => x.state?.playing);
@@ -83,7 +94,7 @@ async function dispatch(action) {
   const tab = await targetTab();
   if (!tab) { lastError = "No playing YouTube tab found"; return; }
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: "control", action });
+    const response = await sendToYouTubeTab(tab.id, { type: "control", action });
     if (!response?.ok) lastError = response?.error || "Command failed";
     else lastError = "";
   } catch (e) { cachedTarget = null; lastError = String(e); }

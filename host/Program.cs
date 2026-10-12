@@ -15,9 +15,10 @@ internal static class Program
     private static readonly object Gate = new();
     private static Binding[] bindings = Array.Empty<Binding>();
     private static bool listening;
-    private static string? heldSeek;
+    private static string? heldAction;
     private static bool capturing;
     private static int? captureModifier;
+    private static (bool ctrl, bool alt, bool shift, bool win)? captureModifierFlags;
     private static int repeatDelay = 300, repeatInterval = 125;
     private static Timer? repeat;
     private static HookProc? hookProc;
@@ -82,12 +83,12 @@ internal static class Program
                 else if (type == "toggleMode") ToggleMode();
                 else if (type == "beginCapture")
                 {
-                    lock (Gate) { capturing = true; captureModifier = null; StopRepeat(); }
+                    lock (Gate) { capturing = true; captureModifier = null; captureModifierFlags = null; StopRepeat(); }
                     Enqueue(new { type = "captureReady" });
                 }
                 else if (type == "cancelCapture")
                 {
-                    lock (Gate) { capturing = false; captureModifier = null; }
+                    lock (Gate) { capturing = false; captureModifier = null; captureModifierFlags = null; }
                 }
             }
         }
@@ -147,13 +148,18 @@ internal static class Program
     {
         if (code < 0) return CallNextHookEx(IntPtr.Zero, code, message, data);
         var info = Marshal.PtrToStructure<KbdLlHookStruct>(data);
-        if ((info.Flags & 0x10) != 0) return CallNextHookEx(IntPtr.Zero, code, message, data);
         int vk = (int)info.VkCode;
         int scan = (int)info.ScanCode;
         bool extended = (info.Flags & 1) != 0;
-        int identity = scan != 0 ? scan | (extended ? 0x10000 : 0) : 0x20000 | vk;
         bool keyDown = message == (IntPtr)WmKeyDown || message == (IntPtr)WmSysKeyDown;
         bool keyUp = message == (IntPtr)WmKeyUp || message == (IntPtr)WmSysKeyUp;
+        bool block = HandleKey(vk, scan, extended, keyDown, keyUp);
+        return block ? (IntPtr)1 : CallNextHookEx(IntPtr.Zero, code, message, data);
+    }
+
+    internal static bool HandleKey(int vk, int scan, bool extended, bool keyDown, bool keyUp)
+    {
+        int identity = scan != 0 ? scan | (extended ? 0x10000 : 0) : 0x20000 | vk;
         bool block = false;
         lock (Gate)
         {
@@ -165,19 +171,19 @@ internal static class Program
                     var flags = ModifierFlags(identity);
                     string label = KeyLabel(scan, extended, vk);
                     Enqueue(new { type = "capturePreview", key = label, ctrl = flags.ctrl, alt = flags.alt, shift = flags.shift, win = flags.win });
-                    if (IsModifier(vk)) captureModifier = identity;
+                    if (IsModifier(vk)) { captureModifier = identity; captureModifierFlags = flags; }
                     else CompleteCapture(scan, extended, vk, label, flags);
                 }
                 else if (keyUp)
                 {
                     if (capturing && captureModifier == identity)
                     {
-                        var flags = ModifierFlags(identity);
+                        var flags = captureModifierFlags ?? ModifierFlags(identity);
                         CompleteCapture(scan, extended, vk, KeyLabel(scan, extended, vk), flags);
                     }
                     Down.Remove(identity);
                 }
-                return (IntPtr)1;
+                return true;
             }
             if (keyDown)
             {
@@ -187,7 +193,10 @@ internal static class Program
                 {
                     var (ctrl, alt, shift, win) = ModifierFlags(identity);
                     var binding = bindings.FirstOrDefault(b => (b.Scan is int saved ? saved == scan && b.Extended == extended && (saved != 0 || b.Key == vk) : b.Key == vk) &&
-                        b.Ctrl == ctrl && b.Alt == alt && b.Shift == shift && b.Win == win &&
+                        // AltGr layouts can synthesize a Ctrl event around Right Alt. Its
+                        // timing differs across keyboards, so it cannot distinguish a
+                        // Right Alt binding from a deliberate Ctrl + Right Alt binding.
+                        (b.Ctrl == ctrl || (scan == 0x38 && extended)) && b.Alt == alt && b.Shift == shift && b.Win == win &&
                         (b.Action == "toggleMode" || b.Ctrl || b.Alt || b.Shift || b.Win || listening));
                     if (binding != null)
                     {
@@ -197,11 +206,11 @@ internal static class Program
                         else
                         {
                             Enqueue(new { type = "command", action = binding.Action });
-                            if (binding.Action is "seekForward" or "seekBackward")
+                            if (binding.Action is "seekForward" or "seekBackward" or "volumeUp" or "volumeDown")
                             {
-                                heldSeek = binding.Action;
+                                heldAction = binding.Action;
                                 repeat?.Dispose();
-                                repeat = new Timer(_ => { lock (Gate) { if (heldSeek != null) Enqueue(new { type = "command", action = heldSeek }); } }, null, repeatDelay, repeatInterval);
+                                repeat = new Timer(_ => { lock (Gate) { if (heldAction != null) Enqueue(new { type = "command", action = heldAction }); } }, null, repeatDelay, repeatInterval);
                             }
                         }
                     }
@@ -212,15 +221,15 @@ internal static class Program
             {
                 Down.Remove(identity);
                 block = Suppressed.Remove(identity);
-                if (heldSeek != null && (block || IsModifier(vk))) StopRepeat();
+                if (heldAction != null && (block || IsModifier(vk))) StopRepeat();
             }
         }
-        return block ? (IntPtr)1 : CallNextHookEx(IntPtr.Zero, code, message, data);
+        return block;
     }
 
     private static void CompleteCapture(int scan, bool extended, int vk, string label, (bool ctrl, bool alt, bool shift, bool win) flags)
     {
-        capturing = false; captureModifier = null;
+        capturing = false; captureModifier = null; captureModifierFlags = null;
         Enqueue(new { type = "captureDone", key = label, scan, extended, vk, ctrl = flags.ctrl, alt = flags.alt, shift = flags.shift, win = flags.win });
     }
     private static (bool ctrl, bool alt, bool shift, bool win) ModifierFlags(int terminal)
@@ -236,7 +245,7 @@ internal static class Program
         if (GetKeyNameText(lParam, name, name.Capacity) > 0) return name.ToString();
         return $"VK {vk:X2}";
     }
-    private static void StopRepeat() { heldSeek = null; repeat?.Dispose(); repeat = null; }
+    private static void StopRepeat() { heldAction = null; repeat?.Dispose(); repeat = null; }
     private static bool IsModifier(int vk) => vk is 0x11 or 0xA2 or 0xA3 or 0x12 or 0xA4 or 0xA5 or 0x10 or 0xA0 or 0xA1 or 0x5B or 0x5C;
     private static int KeyCode(string? key)
     {

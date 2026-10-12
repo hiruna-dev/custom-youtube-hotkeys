@@ -4,7 +4,7 @@ Control YouTube from a game on Windows using a Chrome extension and a small loca
 
 ## Install
 
-1. Keep this folder in a permanent location. The helper registration points to its `host/publish` directory.
+1. Keep this folder in a permanent location. The helper registration points to a manifest in `host/publish`, which selects the current helper build.
 2. In PowerShell, run `powershell -ExecutionPolicy Bypass -File .\install.ps1` from this folder. It uses the installed .NET 8 SDK to build the helper and registers it for your Windows account.
 3. Open `chrome://extensions`, switch on **Developer mode**, choose **Load unpacked**, and select the `extension` folder.
 4. Open the extension's **Settings**. Click **Record** and watch the highlighted row while you press a key or combination. Release a modifier to bind it alone; click **Cancel** to stop recording. Click **Save settings**. Assign **Toggle listening mode** before using single-key actions.
@@ -16,7 +16,7 @@ The packaged extension has a fixed ID. Reinstalling it from this same folder pre
 
 - Combinations work whether listening mode is on or off. Single-key actions work only while it is on. Assigned keys are withheld from the game when they trigger; unrelated keys pass through.
 - New bindings use physical key scan codes, so Shift + Numpad 1 remains distinct from Shift + End even when Windows reports the same virtual key. Existing saved bindings continue to work.
-- Seeking moves one second immediately, then repeats after the delay and at the interval configured in Settings (defaults: 300 ms and 125 ms).
+- Seeking moves one second immediately, then repeats after the delay and at the interval configured in Settings (defaults: 300 ms and 125 ms). Volume uses the same hold-to-repeat timing.
 - Volume changes the YouTube video's volume by 5%, not Windows or game volume.
 - The most recently playing YouTube tab is selected. When the helper restarts, it checks open tabs for a playing video.
 - Preferred quality chooses the highest available resolution at or below your selected value. It uses the English YouTube settings menu and is best effort. If YouTube changes its menu, quality actions may fail until the extension is updated.

@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Custom YouTube Hotkeys",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Control YouTube from a game with configurable Windows hotkeys.",
   "permissions": [
     "nativeMessaging",
     "storage",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://www.youtube.com/*"

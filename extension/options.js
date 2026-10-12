@@ -1,6 +1,6 @@
 const ACTIONS = [
   ["toggleMode", "Toggle listening mode"], ["playPause", "Play / pause"],
-  ["volumeUp", "Volume up (5%)"], ["volumeDown", "Volume down (5%)"],
+  ["volumeUp", "Volume up (5%; hold to repeat)"], ["volumeDown", "Volume down (5%; hold to repeat)"],
   ["mute", "Mute / unmute"], ["seekForward", "Forward one second (hold to repeat)"],
   ["seekBackward", "Back one second (hold to repeat)"], ["pip", "Picture in Picture"],
   ["qualityUp", "Quality up"], ["qualityDown", "Quality down"]
@@ -97,7 +97,7 @@ document.getElementById("save").onclick = async () => {
     message.textContent = "Enter a hold delay from 100-1000 ms and repeat from 50-500 ms."; return;
   }
   await chrome.storage.local.set({ bindings, preferredQuality: document.getElementById("quality").value, repeatDelay, repeatInterval });
-  message.textContent = "Saved. Listening mode starts off after each save.";
+  message.textContent = "Saved. Open the toolbar popup and turn Listening on to use single-key hotkeys.";
 };
 
 (async () => {
