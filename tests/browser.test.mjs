@@ -14,9 +14,9 @@ const contentContext = {
   location: { href: 'https://www.youtube.com/watch?v=test' },
   chrome: {
     runtime: { sendMessage: async () => {}, onMessage: { addListener: listener => contentListeners.push(listener) } },
-    storage: { local: { get: async () => ({ preferredQuality: 'auto' }) } }
+    storage: { local: { get: async () => ({ preferredQuality: 'auto' }) }, onChanged: { addListener() {} } }
   },
-  setTimeout: () => 0, clearTimeout() {}
+  setTimeout: () => 0, clearTimeout() {}, URL, Date
 };
 contentContext.globalThis = contentContext;
 const contentCode = readFileSync(new URL('content.js', root), 'utf8');

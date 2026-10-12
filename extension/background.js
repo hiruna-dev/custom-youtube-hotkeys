@@ -5,7 +5,6 @@ let connected = false;
 let listening = false;
 let lastError = "";
 let retry = null;
-const playing = new Map();
 let cachedTarget = null;
 let cachedUntil = 0;
 const ACTIONS = new Set(["playPause", "volumeUp", "volumeDown", "mute", "seekForward", "seekBackward", "pip", "qualityUp", "qualityDown"]);
@@ -69,30 +68,26 @@ async function targetTab() {
   if (cachedTarget && Date.now() < cachedUntil) return cachedTarget;
   const tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
   if (!tabs.length) return null;
-  const ids = new Set(tabs.map(t => t.id));
-  const known = [...playing.entries()].filter(([id, state]) => ids.has(id) && state.playing);
-  known.sort((a, b) => b[1].time - a[1].time);
-  if (known.length) {
-    cachedTarget = tabs.find(t => t.id === known[0][0]);
-    cachedUntil = Date.now() + 2000;
-    return cachedTarget;
-  }
-  // After a worker restart, ask existing tabs which video is playing.
+  // Include paused and Picture in Picture videos: the last interaction is a
+  // stronger signal than the tab currently marked as playing.
   const states = await Promise.all(tabs.map(async tab => {
     try { return { tab, state: await sendToYouTubeTab(tab.id, { type: "state" }) }; }
     catch { return { tab, state: null }; }
   }));
-  const active = states.filter(x => x.state?.playing);
-  cachedTarget = active.length === 1 ? active[0].tab :
-    active.length > 1 ? (active.find(x => x.tab.active)?.tab || active[0].tab) :
-    (tabs.find(t => t.active) || null);
+  const candidates = states.filter(x => x.state?.hasVideo);
+  candidates.sort((a, b) =>
+    Number(b.state.pip) - Number(a.state.pip) ||
+    (b.state.activityAt || 0) - (a.state.activityAt || 0) ||
+    Number(b.state.playing) - Number(a.state.playing) ||
+    Number(b.tab.active) - Number(a.tab.active));
+  cachedTarget = candidates[0]?.tab || null;
   cachedUntil = Date.now() + 2000;
   return cachedTarget;
 }
 
 async function dispatch(action) {
   const tab = await targetTab();
-  if (!tab) { lastError = "No playing YouTube tab found"; return; }
+  if (!tab) { lastError = "No YouTube video tab found"; return; }
   try {
     const response = await sendToYouTubeTab(tab.id, { type: "control", action });
     if (!response?.ok) lastError = response?.error || "Command failed";
@@ -102,9 +97,7 @@ async function dispatch(action) {
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.type === "playback" && sender.tab?.id) {
-    const old = playing.get(sender.tab.id);
-    playing.set(sender.tab.id, { playing: !!message.playing, time: message.playing ? Date.now() : (old?.time || 0) });
-    if (message.playing) cachedTarget = null;
+    if (message.activity) cachedTarget = null;
   } else if (message.type === "qualityFailure") {
     lastError = message.error || "Could not apply preferred quality";
   } else if (message.type === "status") {
@@ -121,7 +114,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     respond({ ok: true });
   }
 });
-chrome.tabs.onRemoved.addListener(id => { playing.delete(id); if (cachedTarget?.id === id) cachedTarget = null; });
+chrome.tabs.onRemoved.addListener(id => { if (cachedTarget?.id === id) cachedTarget = null; });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (changes.bindings || changes.repeatDelay || changes.repeatInterval)) sendConfig();
 });

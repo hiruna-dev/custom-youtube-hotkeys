@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Custom YouTube Hotkeys",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Control YouTube from a game with configurable Windows hotkeys.",
   "permissions": [
     "nativeMessaging",
