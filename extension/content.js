@@ -105,7 +105,7 @@ async function control(action) {
       default: return { ok: false, error: "Unknown action" };
     }
     return { ok: true };
-  } catch (e) { return { ok: false, error: e.name === "NotAllowedError" && action === "pip" ? "Chrome blocked Picture in Picture without a recent gesture in the YouTube tab" : e.message }; }
+  } catch (e) { return { ok: false, error: e.name === "NotAllowedError" && action === "pip" ? "Chrome blocked Picture in Picture. Reopening it may require a click in the YouTube tab; the hotkey cannot supply that while Chrome is minimized." : e.message }; }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {

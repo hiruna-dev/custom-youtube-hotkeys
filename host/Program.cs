@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 
 internal sealed record Binding(string Action, int Key, int? Scan, bool Extended, bool Ctrl, bool Alt, bool Shift, bool Win);
@@ -13,6 +14,8 @@ internal static class Program
     private static readonly ConcurrentQueue<object> Outbox = new();
     private static readonly AutoResetEvent OutboxSignal = new(false);
     private static readonly object Gate = new();
+    private static readonly byte[] ListeningOnSound = BuildToggleSound(true);
+    private static readonly byte[] ListeningOffSound = BuildToggleSound(false);
     private static Binding[] bindings = Array.Empty<Binding>();
     private static bool listening;
     private static string? heldAction;
@@ -136,12 +139,40 @@ internal static class Program
     private static void Enqueue(object message) { Outbox.Enqueue(message); OutboxSignal.Set(); }
     private static void ToggleMode()
     {
+        bool nowListening;
         lock (Gate)
         {
             listening = !listening;
+            nowListening = listening;
             StopRepeat();
             Enqueue(new { type = "mode", listening });
         }
+        _ = Task.Run(() => PlaySound(nowListening ? ListeningOnSound : ListeningOffSound, IntPtr.Zero, 0x0004 | 0x0002));
+    }
+
+    internal static byte[] BuildToggleSound(bool enabled)
+    {
+        const int sampleRate = 22050;
+        const int noteSamples = 1764; // 80 ms per note
+        var frequencies = enabled ? new[] { 523.25, 659.25 } : new[] { 659.25, 392.00 };
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+        writer.Write(36 + noteSamples * frequencies.Length * sizeof(short));
+        writer.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+        writer.Write(16); writer.Write((short)1); writer.Write((short)1);
+        writer.Write(sampleRate); writer.Write(sampleRate * sizeof(short));
+        writer.Write((short)sizeof(short)); writer.Write((short)16);
+        writer.Write(Encoding.ASCII.GetBytes("data"));
+        writer.Write(noteSamples * frequencies.Length * sizeof(short));
+        foreach (double frequency in frequencies)
+            for (int i = 0; i < noteSamples; i++)
+            {
+                double envelope = Math.Min(1, Math.Min(i / 176.0, (noteSamples - 1 - i) / 264.0));
+                double sample = Math.Sin(2 * Math.PI * frequency * i / sampleRate) * envelope * 0.14;
+                writer.Write((short)(sample * short.MaxValue));
+            }
+        return stream.ToArray();
     }
 
     private static IntPtr OnKeyboard(int code, IntPtr message, IntPtr data)
@@ -289,4 +320,5 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, int msg, IntPtr w, IntPtr l);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetKeyNameText(int lParam, System.Text.StringBuilder name, int size);
+    [DllImport("winmm.dll", EntryPoint = "PlaySoundW")] private static extern bool PlaySound(byte[] wave, IntPtr module, uint flags);
 }

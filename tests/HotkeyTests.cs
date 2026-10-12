@@ -20,6 +20,19 @@ internal static class HotkeyTests
 
     public static void Main()
     {
+        // Verify both feedback sounds are distinct, valid 160 ms PCM wave files.
+        var onSound = Program.BuildToggleSound(true);
+        var offSound = Program.BuildToggleSound(false);
+        foreach (var sound in new[] { onSound, offSound })
+        {
+            Check(System.Text.Encoding.ASCII.GetString(sound, 0, 4) == "RIFF", "Toggle sound is not a RIFF wave");
+            Check(System.Text.Encoding.ASCII.GetString(sound, 8, 4) == "WAVE", "Toggle sound has no WAVE header");
+            Check(BitConverter.ToInt32(sound, 4) == sound.Length - 8, "Toggle sound RIFF size is invalid");
+            Check(BitConverter.ToInt32(sound, 40) == sound.Length - 44, "Toggle sound data size is invalid");
+            Check(sound.Length == 44 + 22050 * 2 * 160 / 1000, "Toggle sound is not 160 ms");
+        }
+        Check(!onSound.SequenceEqual(offSound), "Listening ON and OFF sounds are identical");
+
         // The release order of AltGr's synthetic Ctrl must not change what was recorded.
         Set("capturing", true);
         Program.HandleKey(0xA2, 0x1D, false, true, false);
@@ -54,6 +67,6 @@ internal static class HotkeyTests
         Program.HandleKey(0x77, 0x42, false, false, true);
         Thread.Sleep(110);
         Check(Commands("volumeDown") == 0, "Volume continued after key release");
-        Console.WriteLine("Right Alt toggle and held volume passed.");
+        Console.WriteLine("Right Alt toggle, held volume, and listening sounds passed.");
     }
 }

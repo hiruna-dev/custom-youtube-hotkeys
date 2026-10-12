@@ -18,9 +18,10 @@ The packaged extension has a fixed ID. Reinstalling it from this same folder pre
 - New bindings use physical key scan codes, so Shift + Numpad 1 remains distinct from Shift + End even when Windows reports the same virtual key. Existing saved bindings continue to work.
 - Seeking moves one second immediately, then repeats after the delay and at the interval configured in Settings (defaults: 300 ms and 125 ms). Volume uses the same hold-to-repeat timing.
 - Volume changes the YouTube video's volume by 5%, not Windows or game volume.
+- Listening mode plays a short rising sound when enabled and a falling sound when disabled. The sound uses the Windows output device and system volume.
 - The most recently used YouTube video is selected, including after it is paused by a mouse click or exits Picture in Picture. When the extension restarts, it checks open video tabs.
 - Preferred quality chooses the highest available resolution at or below your selected value. Quality up/down recognizes frame-rate labels such as 720p60 and 1080p60. The preference applies once per video so it does not undo a quality hotkey. It uses the English YouTube settings menu and is best effort.
-- Picture in Picture depends on Chrome allowing the action from a background tab. Its failure is shown in the popup.
+- Picture in Picture can be closed with the hotkey. Chrome requires a recent interaction with the YouTube tab before opening it again, so reopening from a minimized Chrome window may be blocked. The popup shows this error when it happens.
 
 ## Performance and limits
 
