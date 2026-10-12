@@ -108,3 +108,8 @@ document.getElementById("save").onclick = async () => {
   document.getElementById("repeatDelay").value = stored.repeatDelay;
   document.getElementById("repeatInterval").value = stored.repeatInterval;
 })();
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.preferredQuality)
+    document.getElementById("quality").value = changes.preferredQuality.newValue;
+});

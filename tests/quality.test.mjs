@@ -6,7 +6,9 @@ let menu = 'closed';
 let selected = 480;
 let preferenceTimers = 0;
 let preferenceCallback;
+let storedPreference = '480p';
 const listeners = [];
+const storageListeners = [];
 const events = new Map();
 const levels = [1440, 1080, 720, 480, 360, 240, 144];
 const item = level => ({
@@ -38,7 +40,16 @@ const document = {
 };
 const chrome = {
   runtime: { onMessage: { addListener: fn => listeners.push(fn) }, sendMessage: async () => {} },
-  storage: { local: { get: async () => ({ preferredQuality: '480p' }) }, onChanged: { addListener() {} } }
+  storage: { local: {
+    get: async () => ({ preferredQuality: storedPreference }),
+    set: async ({ preferredQuality }) => {
+      const oldValue = storedPreference;
+      storedPreference = preferredQuality;
+      if (oldValue !== preferredQuality)
+        for (const listener of storageListeners)
+          listener({ preferredQuality: { oldValue, newValue: preferredQuality } }, 'local');
+    }
+  }, onChanged: { addListener: fn => storageListeners.push(fn) } }
 };
 const code = readFileSync(new URL('../extension/content.js', import.meta.url), 'utf8');
 const context = {
@@ -54,13 +65,26 @@ assert.equal(selected, 480);
 
 assert.equal((await command('qualityUp')).ok, true);
 assert.equal(selected, 720, 'quality up must recognize 720p60');
+assert.equal(storedPreference, '720p', 'quality up must save the new default');
 assert.equal((await command('qualityUp')).ok, true);
 assert.equal(selected, 1080, 'quality up must recognize 1080p60');
+assert.equal(storedPreference, '1080p');
 assert.equal((await command('qualityDown')).ok, true);
 assert.equal(selected, 720, 'quality down must select the previous quality');
+assert.equal(storedPreference, '720p', 'quality down must save the new default');
 const beforeMetadata = preferenceTimers;
 events.get('loadedmetadata')();
 assert.equal(preferenceTimers, beforeMetadata, 'a quality change must not reapply the saved preference');
+
+// A fresh page context must read the quality saved by the hotkey.
+selected = 480;
+menu = 'closed';
+const reloadedContext = { ...context };
+delete reloadedContext.__customYouTubeHotkeysLoaded;
+reloadedContext.globalThis = reloadedContext;
+runInNewContext(code, reloadedContext);
+await preferenceCallback();
+assert.equal(selected, 720, 'reload must apply the quality saved by the hotkey');
 
 assert.equal((await command('pip')).ok, true);
 assert.equal(document.pictureInPictureElement, video);
@@ -68,4 +92,4 @@ assert.equal((await command('pip')).ok, true);
 assert.equal(document.pictureInPictureElement, null);
 assert.equal((await command('pip')).ok, true);
 assert.equal(document.pictureInPictureElement, video, 'Picture in Picture should reopen after closing');
-console.log('Quality stepping and Picture in Picture toggle passed.');
+console.log('Quality persistence and Picture in Picture toggle passed.');

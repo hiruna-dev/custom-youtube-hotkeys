@@ -4,6 +4,7 @@ globalThis.__customYouTubeHotkeysLoaded = true;
 let lastVideo = null;
 let qualityTimer = null;
 let preferredQualityAppliedTo = null;
+const pendingHotkeyQualities = new Set();
 let lastActivityAt = 0;
 
 function video() { return document.querySelector("video.html5-main-video") || document.querySelector("video"); }
@@ -83,7 +84,13 @@ async function setQuality(preferred, direction = 0) {
       choice = [...sorted].reverse().find(x => x.level <= requested) || sorted[0];
     }
     choice.element.click();
-    if (direction) { clearTimeout(qualityTimer); preferredQualityAppliedTo = videoKey(); }
+    if (direction) {
+      clearTimeout(qualityTimer);
+      preferredQualityAppliedTo = videoKey();
+      const savedQuality = `${choice.level}p`;
+      pendingHotkeyQualities.add(savedQuality);
+      await chrome.storage.local.set({ preferredQuality: savedQuality });
+    }
     return { ok: true, quality: choice.level };
   } catch (e) { return { ok: false, error: e.message }; }
 }
@@ -118,7 +125,12 @@ document.addEventListener("yt-navigate-finish", () => {
   setTimeout(attach, 800);
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.preferredQuality) { preferredQualityAppliedTo = null; scheduleQuality(); }
+  if (area === "local" && changes.preferredQuality) {
+    if (preferredQualityAppliedTo === videoKey() && pendingHotkeyQualities.delete(changes.preferredQuality.newValue)) return;
+    pendingHotkeyQualities.clear();
+    preferredQualityAppliedTo = null;
+    scheduleQuality();
+  }
 });
 attach();
 setTimeout(attach, 1000);
