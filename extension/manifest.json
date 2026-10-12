@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Ren's YouTube Hotkeys",
+  "version": "0.1.0",
+  "description": "Control YouTube from a game with configurable Windows hotkeys.",
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApsTYbk3Cew3Gzbe9kMMFNdck89sXW5SZprGsXr8gAtOepLCmYgyCQY95a0OxWebQ84Aww5gH/QtLEUdIm9q1SlLbU6pBDVee/DcL0v2KFYy1/2vldArJbpGBb90BxBqN/CfXtrIIT7XvG1L9qQzMx8mw09RgAySpnTqmKnrVTJJlIFWpmZR+KNxgjTsuEb/gQop7cXmYr7ZAbpRa7IkpfcI/2oSL0XDGrE+6keX8djlX5S1/y0TublFZO8S05rvO2lY8LqlbToUXlS/3n5Cih8afZ+DTwKlGVl3WlxgpO/BasWSLgMHfYLney7Hnnr8tnIeug42vWwrtuKEUKuVWIQIDAQAB"
+}

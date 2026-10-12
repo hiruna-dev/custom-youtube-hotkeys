@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>YouTube Hotkeys settings</title>
+<link rel="stylesheet" href="style.css">
+<main>
+  <h1>YouTube Hotkeys</h1>
+  <p>Click Record, press your chosen combination or single key, then Save. Single-key actions work only while listening mode is on. Assigned action keys are blocked from the game when they trigger.</p>
+  <div id="bindings"></div>
+  <label class="quality">Preferred quality <select id="quality">
+    <option value="auto">YouTube Auto</option>
+    <option value="144p">144p</option><option value="240p">240p</option><option value="360p">360p</option>
+    <option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option>
+    <option value="1440p">1440p</option><option value="2160p">2160p</option>
+  </select></label>
+  <label class="quality">Hold delay (ms) <input id="repeatDelay" type="number" min="100" max="1000" step="25"></label>
+  <label class="quality">Hold repeat (ms) <input id="repeatInterval" type="number" min="50" max="500" step="25"></label>
+  <p class="hint">Quality uses YouTube's menu. It currently requires the English YouTube interface and may stop working after a site update.</p>
+  <button id="save">Save settings</button><span id="message" role="status"></span>
+  <p class="hint">Seek repeats while held. Unassigned controls do nothing.</p>
+</main><script src="options.js"></script></html>
