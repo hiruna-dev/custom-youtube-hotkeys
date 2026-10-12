@@ -1,0 +1,6 @@
+host/bin/
+host/obj/
+host/publish/
+host/empty-feed/
+package/
+*.zip

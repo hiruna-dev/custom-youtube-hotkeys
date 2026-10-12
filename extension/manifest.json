@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Ren's YouTube Hotkeys",
+  "name": "Custom YouTube Hotkeys",
   "version": "0.1.0",
   "description": "Control YouTube from a game with configurable Windows hotkeys.",
   "permissions": [

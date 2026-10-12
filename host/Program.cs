@@ -2,14 +2,13 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-internal sealed record Binding(string Action, int Key, bool Ctrl, bool Alt, bool Shift, bool Win);
+internal sealed record Binding(string Action, int Key, int? Scan, bool Extended, bool Ctrl, bool Alt, bool Shift, bool Win);
 
 internal static class Program
 {
     private const int WhKeyboardLl = 13, WmKeyDown = 0x100, WmKeyUp = 0x101,
         WmSysKeyDown = 0x104, WmSysKeyUp = 0x105, WmQuit = 0x12;
-    private const int VkCtrl = 0x11, VkAlt = 0x12, VkShift = 0x10, VkWin = 0x5B;
-    private static readonly HashSet<int> Down = new();
+    private static readonly Dictionary<int, int> Down = new();
     private static readonly HashSet<int> Suppressed = new();
     private static readonly ConcurrentQueue<object> Outbox = new();
     private static readonly AutoResetEvent OutboxSignal = new(false);
@@ -17,6 +16,8 @@ internal static class Program
     private static Binding[] bindings = Array.Empty<Binding>();
     private static bool listening;
     private static string? heldSeek;
+    private static bool capturing;
+    private static int? captureModifier;
     private static int repeatDelay = 300, repeatInterval = 125;
     private static Timer? repeat;
     private static HookProc? hookProc;
@@ -59,10 +60,12 @@ internal static class Program
                         foreach (var item in items.EnumerateObject())
                         {
                             var v = item.Value;
-                            if (v.ValueKind != JsonValueKind.Object || !v.TryGetProperty("key", out var key)) continue;
-                            int vk = KeyCode(key.GetString());
-                            if (vk == 0) continue;
-                            next.Add(new Binding(item.Name, vk, Flag(v, "ctrl"), Flag(v, "alt"), Flag(v, "shift"), Flag(v, "win")));
+                            if (v.ValueKind != JsonValueKind.Object) continue;
+                            int? scan = v.TryGetProperty("scan", out var s) && s.TryGetInt32(out int n) ? n : null;
+                            int vk = v.TryGetProperty("vk", out var k) && k.TryGetInt32(out int value) ? value :
+                                v.TryGetProperty("key", out var key) ? KeyCode(key.GetString()) : 0;
+                            if (scan is null && vk == 0) continue;
+                            next.Add(new Binding(item.Name, vk, scan, Flag(v, "extended"), Flag(v, "ctrl"), Flag(v, "alt"), Flag(v, "shift"), Flag(v, "win")));
                         }
                     lock (Gate)
                     {
@@ -77,6 +80,15 @@ internal static class Program
                     Enqueue(new { type = "mode", listening = false });
                 }
                 else if (type == "toggleMode") ToggleMode();
+                else if (type == "beginCapture")
+                {
+                    lock (Gate) { capturing = true; captureModifier = null; StopRepeat(); }
+                    Enqueue(new { type = "captureReady" });
+                }
+                else if (type == "cancelCapture")
+                {
+                    lock (Gate) { capturing = false; captureModifier = null; }
+                }
             }
         }
         catch { /* Chrome closed the pipe. */ }
@@ -137,22 +149,49 @@ internal static class Program
         var info = Marshal.PtrToStructure<KbdLlHookStruct>(data);
         if ((info.Flags & 0x10) != 0) return CallNextHookEx(IntPtr.Zero, code, message, data);
         int vk = (int)info.VkCode;
+        int scan = (int)info.ScanCode;
+        bool extended = (info.Flags & 1) != 0;
+        int identity = scan != 0 ? scan | (extended ? 0x10000 : 0) : 0x20000 | vk;
         bool keyDown = message == (IntPtr)WmKeyDown || message == (IntPtr)WmSysKeyDown;
         bool keyUp = message == (IntPtr)WmKeyUp || message == (IntPtr)WmSysKeyUp;
         bool block = false;
         lock (Gate)
         {
+            if (capturing)
+            {
+                if (keyDown && !Down.ContainsKey(identity))
+                {
+                    Down[identity] = vk;
+                    var flags = ModifierFlags(identity);
+                    string label = KeyLabel(scan, extended, vk);
+                    Enqueue(new { type = "capturePreview", key = label, ctrl = flags.ctrl, alt = flags.alt, shift = flags.shift, win = flags.win });
+                    if (IsModifier(vk)) captureModifier = identity;
+                    else CompleteCapture(scan, extended, vk, label, flags);
+                }
+                else if (keyUp)
+                {
+                    if (capturing && captureModifier == identity)
+                    {
+                        var flags = ModifierFlags(identity);
+                        CompleteCapture(scan, extended, vk, KeyLabel(scan, extended, vk), flags);
+                    }
+                    Down.Remove(identity);
+                }
+                return (IntPtr)1;
+            }
             if (keyDown)
             {
-                bool first = Down.Add(vk);
+                bool first = !Down.ContainsKey(identity);
+                Down[identity] = vk;
                 if (first)
                 {
-                    bool ctrl = HasModifier(VkCtrl), alt = HasModifier(VkAlt), shift = HasModifier(VkShift), win = HasModifier(VkWin);
-                    var binding = bindings.FirstOrDefault(b => b.Key == vk && b.Ctrl == ctrl && b.Alt == alt && b.Shift == shift && b.Win == win &&
+                    var (ctrl, alt, shift, win) = ModifierFlags(identity);
+                    var binding = bindings.FirstOrDefault(b => (b.Scan is int saved ? saved == scan && b.Extended == extended && (saved != 0 || b.Key == vk) : b.Key == vk) &&
+                        b.Ctrl == ctrl && b.Alt == alt && b.Shift == shift && b.Win == win &&
                         (b.Action == "toggleMode" || b.Ctrl || b.Alt || b.Shift || b.Win || listening));
                     if (binding != null)
                     {
-                        Suppressed.Add(vk);
+                        Suppressed.Add(identity);
                         block = true;
                         if (binding.Action == "toggleMode") ToggleMode();
                         else
@@ -167,26 +206,37 @@ internal static class Program
                         }
                     }
                 }
-                else block = Suppressed.Contains(vk);
+                else block = Suppressed.Contains(identity);
             }
             else if (keyUp)
             {
-                Down.Remove(vk);
-                block = Suppressed.Remove(vk);
+                Down.Remove(identity);
+                block = Suppressed.Remove(identity);
                 if (heldSeek != null && (block || IsModifier(vk))) StopRepeat();
             }
         }
         return block ? (IntPtr)1 : CallNextHookEx(IntPtr.Zero, code, message, data);
     }
 
-    private static void StopRepeat() { heldSeek = null; repeat?.Dispose(); repeat = null; }
-    private static bool HasModifier(int vk) => vk switch
+    private static void CompleteCapture(int scan, bool extended, int vk, string label, (bool ctrl, bool alt, bool shift, bool win) flags)
     {
-        VkCtrl => Down.Contains(0x11) || Down.Contains(0xA2) || Down.Contains(0xA3),
-        VkAlt => Down.Contains(0x12) || Down.Contains(0xA4) || Down.Contains(0xA5),
-        VkShift => Down.Contains(0x10) || Down.Contains(0xA0) || Down.Contains(0xA1),
-        _ => Down.Contains(0x5B) || Down.Contains(0x5C)
-    };
+        capturing = false; captureModifier = null;
+        Enqueue(new { type = "captureDone", key = label, scan, extended, vk, ctrl = flags.ctrl, alt = flags.alt, shift = flags.shift, win = flags.win });
+    }
+    private static (bool ctrl, bool alt, bool shift, bool win) ModifierFlags(int terminal)
+    {
+        var keys = Down.Where(pair => pair.Key != terminal).Select(pair => pair.Value).ToArray();
+        return (keys.Any(v => v is 0x11 or 0xA2 or 0xA3), keys.Any(v => v is 0x12 or 0xA4 or 0xA5),
+            keys.Any(v => v is 0x10 or 0xA0 or 0xA1), keys.Any(v => v is 0x5B or 0x5C));
+    }
+    private static string KeyLabel(int scan, bool extended, int vk)
+    {
+        var name = new System.Text.StringBuilder(64);
+        int lParam = (scan << 16) | (extended ? 1 << 24 : 0);
+        if (GetKeyNameText(lParam, name, name.Capacity) > 0) return name.ToString();
+        return $"VK {vk:X2}";
+    }
+    private static void StopRepeat() { heldSeek = null; repeat?.Dispose(); repeat = null; }
     private static bool IsModifier(int vk) => vk is 0x11 or 0xA2 or 0xA3 or 0x12 or 0xA4 or 0xA5 or 0x10 or 0xA0 or 0xA1 or 0x5B or 0x5C;
     private static int KeyCode(string? key)
     {
@@ -229,4 +279,5 @@ internal static class Program
     [DllImport("user32.dll")] private static extern int GetMessage(out WinMessage msg, IntPtr hwnd, uint min, uint max);
     [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, int msg, IntPtr w, IntPtr l);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetKeyNameText(int lParam, System.Text.StringBuilder name, int size);
 }

@@ -8,48 +8,93 @@ const ACTIONS = [
 const bindings = {};
 const rows = document.getElementById("bindings");
 const message = document.getElementById("message");
+const controls = new Map();
 let recording = null;
 const format = b => b ? [...(b.ctrl ? ["Ctrl"] : []), ...(b.alt ? ["Alt"] : []), ...(b.shift ? ["Shift"] : []), ...(b.win ? ["Win"] : []), b.key].join(" + ") : "Unassigned";
-const id = b => `${b.ctrl}-${b.alt}-${b.shift}-${b.win}-${b.key}`;
+const id = b => `${b.ctrl}-${b.alt}-${b.shift}-${b.win}-${b.scan ?? b.key}-${b.extended ?? false}-${b.scan === 0 ? b.vk : ""}`;
+
+function showRecording(action) {
+  recording = action;
+  for (const [name, { row, record, key }] of controls) {
+    const active = name === action;
+    row.classList.toggle("recording", active);
+    record.textContent = active ? "Cancel" : "Record";
+    record.setAttribute("aria-pressed", String(active));
+    key.textContent = active ? "Listening…" : format(bindings[name]);
+  }
+  message.textContent = action ? `Recording ${ACTIONS.find(x => x[0] === action)[1]}. Press a key or combination; release a modifier to bind it alone. Click Cancel to stop.` : "";
+}
 
 for (const [action, label] of ACTIONS) {
   const row = document.createElement("div"); row.className = "row";
   const name = document.createElement("span"); name.textContent = label;
-  const key = document.createElement("output"); key.id = `key-${action}`; key.textContent = "Unassigned";
-  const record = document.createElement("button"); record.textContent = "Record";
-  record.onclick = () => { recording = action; message.textContent = "Press a key or combination. Esc cancels."; record.focus(); };
-  const clear = document.createElement("button"); clear.textContent = "Clear";
-  clear.onclick = () => { delete bindings[action]; key.textContent = "Unassigned"; message.textContent = ""; };
+  const key = document.createElement("output"); key.textContent = "Unassigned";
+  const record = document.createElement("button"); record.type = "button"; record.textContent = "Record";
+  record.setAttribute("aria-label", `Record ${label}`);
+  record.onclick = async () => {
+    if (recording === action) {
+      await chrome.runtime.sendMessage({ type: "cancelCapture" });
+      showRecording(null);
+      message.textContent = "Recording cancelled.";
+      return;
+    }
+    if (recording) await chrome.runtime.sendMessage({ type: "cancelCapture" });
+    showRecording(action);
+    let result;
+    try { result = await chrome.runtime.sendMessage({ type: "beginCapture" }); }
+    catch (error) { result = { ok: false, error: String(error) }; }
+    if (!result?.ok) { showRecording(null); message.textContent = result?.error || "Could not start recording."; return; }
+    record.focus();
+  };
+  const clear = document.createElement("button"); clear.type = "button"; clear.textContent = "Clear";
+  clear.onclick = async () => {
+    if (recording === action) { await chrome.runtime.sendMessage({ type: "cancelCapture" }); showRecording(null); }
+    delete bindings[action]; key.textContent = "Unassigned"; message.textContent = "Cleared. Press Save settings to apply.";
+  };
   row.append(name, key, record, clear); rows.append(row);
+  controls.set(action, { row, record, key });
 }
+
+chrome.runtime.onMessage.addListener(event => {
+  if (!recording) return;
+  if (event.type === "capturePreview") {
+    controls.get(recording).key.textContent = format(event);
+    message.textContent = `Recording ${ACTIONS.find(x => x[0] === recording)[1]}: ${format(event)}. Press another key or release a modifier to finish.`;
+  } else if (event.type === "captureCancelled") {
+    showRecording(null); message.textContent = "Recording cancelled.";
+  } else if (event.type === "captureDone") {
+    const action = recording;
+    const value = { key: event.key, scan: event.scan, extended: event.extended, vk: event.vk,
+      ctrl: event.ctrl, alt: event.alt, shift: event.shift, win: event.win };
+    const duplicate = Object.entries(bindings).find(([other, b]) => other !== action && id(b) === id(value));
+    showRecording(null);
+    if (duplicate) {
+      message.textContent = `${format(value)} is already assigned to ${ACTIONS.find(x => x[0] === duplicate[0])[1]}.`;
+      return;
+    }
+    bindings[action] = value;
+    controls.get(action).key.textContent = format(value);
+    message.textContent = `${format(value)} recorded. Press Save settings to apply.`;
+  }
+});
 
 document.addEventListener("keydown", event => {
   if (!recording) return;
   event.preventDefault(); event.stopPropagation();
-  if (event.key === "Escape") { recording = null; message.textContent = "Recording cancelled"; return; }
-  const code = event.code;
-  if (/^(Control|Alt|Shift|Meta)/.test(code)) return;
-  if (!/^(Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Numpad[0-9]|Space|Arrow(?:Left|Right|Up|Down)|Comma|Period|Slash|Semicolon|Quote|BracketLeft|BracketRight|Backslash|Minus|Equal|Insert|Delete|Home|End|PageUp|PageDown)$/.test(code)) {
-    message.textContent = "That key isn't supported. Choose a letter, number, function, arrow, or common punctuation key."; return;
-  }
-  const key = code.startsWith("Key") || code.startsWith("Digit") ? code.slice(code.startsWith("Key") ? 3 : 5) : code;
-  const value = { key, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, win: event.metaKey };
-  const duplicate = Object.entries(bindings).find(([action, b]) => action !== recording && id(b) === id(value));
-  if (duplicate) { message.textContent = `Already assigned to ${ACTIONS.find(x => x[0] === duplicate[0])[1]}`; return; }
-  bindings[recording] = value;
-  document.getElementById(`key-${recording}`).textContent = format(value);
-  recording = null;
-  message.textContent = "Press Save settings to apply.";
 }, true);
+window.addEventListener("pagehide", () => {
+  if (recording) chrome.runtime.sendMessage({ type: "cancelCapture" }).catch(() => {});
+});
 
 document.getElementById("save").onclick = async () => {
+  if (recording) { message.textContent = "Finish or cancel recording before saving."; return; }
   if (!bindings.toggleMode && Object.values(bindings).some(b => !b.ctrl && !b.alt && !b.shift && !b.win)) {
     message.textContent = "Assign a listening-mode toggle before using single-key controls."; return;
   }
   const repeatDelay = Number(document.getElementById("repeatDelay").value);
   const repeatInterval = Number(document.getElementById("repeatInterval").value);
   if (!Number.isInteger(repeatDelay) || repeatDelay < 100 || repeatDelay > 1000 || !Number.isInteger(repeatInterval) || repeatInterval < 50 || repeatInterval > 500) {
-    message.textContent = "Enter a hold delay from 100–1000 ms and repeat from 50–500 ms."; return;
+    message.textContent = "Enter a hold delay from 100-1000 ms and repeat from 50-500 ms."; return;
   }
   await chrome.storage.local.set({ bindings, preferredQuality: document.getElementById("quality").value, repeatDelay, repeatInterval });
   message.textContent = "Saved. Listening mode starts off after each save.";
@@ -58,7 +103,7 @@ document.getElementById("save").onclick = async () => {
 (async () => {
   const stored = await chrome.storage.local.get({ bindings: {}, preferredQuality: "auto", repeatDelay: 300, repeatInterval: 125 });
   Object.assign(bindings, stored.bindings);
-  for (const [action] of ACTIONS) document.getElementById(`key-${action}`).textContent = format(bindings[action]);
+  for (const [action] of ACTIONS) controls.get(action).key.textContent = format(bindings[action]);
   document.getElementById("quality").value = stored.preferredQuality;
   document.getElementById("repeatDelay").value = stored.repeatDelay;
   document.getElementById("repeatInterval").value = stored.repeatInterval;

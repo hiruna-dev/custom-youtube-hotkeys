@@ -1,4 +1,4 @@
-const HOST = "com.ren.youtube_hotkeys";
+const HOST = "com.custom.youtube_hotkeys";
 const DEFAULTS = { bindings: {}, preferredQuality: "auto", repeatDelay: 300, repeatInterval: 125 };
 let port = null;
 let connected = false;
@@ -37,6 +37,8 @@ function connect() {
         chrome.action.setBadgeBackgroundColor({ color: "#267b4b" });
       } else if (message.type === "command" && ACTIONS.has(message.action)) {
         await dispatch(message.action);
+      } else if (["captureReady", "capturePreview", "captureDone", "captureCancelled"].includes(message.type)) {
+        chrome.runtime.sendMessage(message).catch(() => {});
       }
     });
     p.onDisconnect.addListener(() => {
@@ -46,6 +48,7 @@ function connect() {
       connected = false;
       listening = false;
       chrome.action.setBadgeText({ text: "" });
+      chrome.runtime.sendMessage({ type: "captureCancelled" }).catch(() => {});
       retry = setTimeout(() => { retry = null; connect(); }, 30000);
     });
   } catch (e) { lastError = String(e); }
@@ -101,6 +104,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   } else if (message.type === "toggleMode") {
     port?.postMessage({ type: "toggleMode" });
     respond({ ok: !!port });
+  } else if (message.type === "beginCapture" || message.type === "cancelCapture") {
+    if (!connected || !port) { respond({ ok: false, error: lastError || "Windows helper is not connected. Run install.ps1 and reload the extension." }); return; }
+    port.postMessage({ type: message.type });
+    respond({ ok: true });
   }
 });
 chrome.tabs.onRemoved.addListener(id => { playing.delete(id); if (cachedTarget?.id === id) cachedTarget = null; });

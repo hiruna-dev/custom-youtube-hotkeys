@@ -2,6 +2,9 @@
 body { margin: 0; } main { max-width: 740px; margin: 30px auto; padding: 0 20px 30px; }
 h1 { margin-bottom: 8px; } p { line-height: 1.5; color: #c8cbd5; }
 .row { display: grid; grid-template-columns: 1fr 190px 74px 65px; gap: 8px; align-items: center; border-bottom: 1px solid #343745; padding: 10px 0; }
+.row.recording { background: #243b39; outline: 2px solid #64d6aa; outline-offset: 2px; }
+.row.recording output { color: #b5ffd9; font-weight: 700; }
+.row.recording button[aria-pressed="true"] { background: #35775a; border-color: #8de2b4; }
 output { color: #88c8ff; } button, select { border: 1px solid #687084; color: white; background: #343d52; border-radius: 5px; padding: 7px 9px; cursor: pointer; }
 button:hover { background: #485675; } .quality { display: flex; gap: 16px; align-items: center; margin: 24px 0 4px; }
 .hint { font-size: 13px; } #message { margin-left: 12px; color: #9fe1a6; }
