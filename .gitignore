@@ -3,5 +3,7 @@ host/obj/
 host/publish/
 host/publish-*/
 host/empty-feed/
+tests/bin/
+tests/obj/
 package/
 *.zip
